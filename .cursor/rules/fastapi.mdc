@@ -1,0 +1,123 @@
+---
+alwaysApply: true
+---
+# FastAPI Best Practices
+
+## Project Structure
+- Use proper directory structure
+- Implement proper module organization
+- Use proper dependency injection
+- Keep routes organized by domain
+- Implement proper middleware
+- Use proper configuration management
+
+## API Design
+- Use proper HTTP methods
+- Implement proper status codes
+- Use proper request/response models
+- Implement proper validation
+- Use proper error handling
+- Document APIs with OpenAPI
+
+## URL Conventions
+- Company-owned resources follow `/companies/{company_id}/<resource>` pattern
+- Examples: `/companies/{company_id}/billing`, `/companies/{company_id}/categories`, `/companies/{company_id}/fields`
+- The `company_id` path parameter is extracted by `CompanyAdminDep` / `CompanyViewerDep` dependencies
+- Internal/service endpoints use `/internal/<resource>` prefix
+
+## Models
+- Use Pydantic models
+- Implement proper validation
+- Use proper type hints
+- Keep models organized
+- Use proper inheritance
+- Implement proper serialization
+
+## Pagination
+- Use `PaginatedResponse[T]` from `common.models.pagination` for list endpoints
+- Use `PaginationParams` dependency for extracting `limit` and `offset` from query params
+- Do not create custom list response schemas with `items` + `total` — use the generic pattern
+- Example: `response_model=PaginatedResponse[TaskResponse]`
+
+## Database
+- Use proper ORM (Tortoise ORM)
+- Implement proper migrations
+- Use proper connection pooling
+- Implement proper transactions
+- Use proper query optimization
+- Handle database errors properly
+
+## Annotated Dependencies (Dep aliases)
+- `CompanyAdminDep`, `CompanyViewerDep`, etc. are `Annotated[CompanyUser, Depends(require_...)]` aliases.
+- Use them as **bare type annotations**: `user: CompanyAdminDep`. FastAPI resolves the embedded `Depends` automatically.
+- **NEVER** wrap them in `Depends()`: `user: CompanyUser = Depends(CompanyAdminDep)` double-wraps the dependency — FastAPI tries to call the `Annotated` type itself, causing 422.
+- Same rule applies to all `Annotated` dependency aliases in the project (`TaskServiceDep`, `AuthServiceDep`, etc.).
+
+## Router Organization
+- Use **one router per module** unless you have a clear separation (e.g., `public_router` vs `internal_router`).
+- Don't create separate routers just for different route paths — use a single router with different route decorators.
+- Example: Instead of `my_tasks_router` and `all_tasks_router`, use one `router` with `@router.get("/my-tasks")` and `@router.get("/tasks")`.
+
+## Thin routers
+- `routers.py` should wire HTTP to services (and Pydantic in/out): path/query/body parsing, dependencies, `response_model`, status codes, and delegating calls. It is not the place for reusable logic, lookup tables, or ad-hoc formatting.
+- **Do not** grow module-level `def _...` helpers, `dict`/`Mapping` dispatch tables, or “small” mappers in the router file to keep them “module-private”. That obscures tests and reuse; put parsing/normalization in `schemas.py` (or a dedicated module in the same package, e.g. `normalization.py`), and orchestration in **services**.
+- If something in a router is non-trivial enough to name with a leading underscore, it almost always belongs elsewhere.
+
+## Route Handler Parameter Ordering
+- FastAPI resolves parameters by type, not position, but follow Python conventions for readability.
+- Order: path params (no defaults) → service dependencies → auth dependencies (with defaults) → query params (with defaults) → pagination (with `Depends()`).
+- Example: `async def handler(company_id: int, order_id: int, service: ServiceDep, user: CompanyViewerDep, query_param: bool = Query(...), pagination: PaginationParams = Depends())`
+
+## Authentication
+- Implement proper JWT authentication
+- Use proper password hashing
+- Implement proper role-based access
+- Use proper session management
+- Implement proper OAuth2
+- Handle authentication errors properly
+
+## Security
+- Implement proper CORS
+- Use proper rate limiting
+- Implement proper input validation
+- Use proper security headers
+- Handle security errors properly
+- Implement proper logging
+
+## Performance
+- Use proper caching
+- Implement proper async operations
+- Use proper background tasks
+- Implement proper connection pooling
+- Use proper query optimization
+- Monitor performance metrics
+
+## BackgroundTasks
+- Always inject `BackgroundTasks` as a required handler argument: `background_tasks: BackgroundTasks` (not optional).
+- Schedule side effects via `background_tasks.add_task(...)` from routers; do not call `asyncio.create_task(...)` in route handlers.
+- Keep business logic inside services; pass bound service methods to `add_task`.
+- Use `BackgroundTasks` only in request context; for long‑lived work, prefer a worker/queue.
+
+## Testing
+- Write proper unit tests
+- Implement proper integration tests
+- Use proper test fixtures
+- Implement proper mocking
+- Test error scenarios
+- Use proper test coverage
+
+## Deployment
+- Use proper Docker configuration
+- Implement proper CI/CD
+- Use proper environment variables
+- Implement proper logging
+- Use proper monitoring
+- Handle deployment errors properly
+
+## Documentation
+- Use proper docstrings
+- Implement proper API documentation
+- Use proper type hints
+- Keep documentation updated
+- Document error scenarios
+- Use proper versioning

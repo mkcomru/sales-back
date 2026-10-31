@@ -1,0 +1,155 @@
+---
+description: Apply when working with integrations, external service providers, or the capability-provider pattern. Relevant for code in apps/backend/src/backend/integrations/, modules/integrations/, or any service override for external providers.
+alwaysApply: false
+---
+
+# Integration Pattern: Service Inheritance + DI Resolution
+
+## Architecture
+
+External service integrations follow the **service inheritance pattern**:
+
+1. **Base service** = builtin behavior (our DB). e.g., `ProductsService`
+2. **Override service** = integration behavior. e.g., `<Provider>ProductsService(ProductsService)`
+3. **DI resolver** = `integration_aware()` selects which class to instantiate based on company's active integrations
+
+No separate "Provider" or "Protocol" abstraction layer. The base service IS the interface.
+`provider_type` is a plain `str` on the `Integration` model — NOT an enum. Each provider package defines its own type string and registers overrides with it.
+
+## Key Locations
+
+- `libs/common/src/common/integrations.py` — `Capability` enum, `CAPABILITY_TOOLS` mapping
+- `apps/backend/src/backend/modules/integrations/` — `Integration` model, CRUD, `SERVICE_OVERRIDES` registry, `integration_aware()` DI function
+- `apps/backend/src/backend/integrations/` — Provider packages (each integration in its own subdirectory)
+- `plans/032-integration-capability-provider-pattern.md` — Full architecture plan
+
+## How to Add a New Integration
+
+1. Create `apps/backend/src/backend/integrations/<name>/`
+2. Implement `client.py` — HTTP client subclassing `BaseIntegrationClient` (auth, rate limiting, retry)
+3. Define `config.py` — Pydantic schema for credentials validation
+4. Create service overrides in `services/` — subclass only the methods you need to change
+5. Register in `__init__.py`:
+   ```python
+   from src.backend.modules.integrations.registry import register_override
+   register_override("provider_name", BaseService, OverrideService)
+   ```
+6. **Done.** No changes to routes, no if/else in core code, no migration needed.
+
+## Service Override Rules
+
+- Override ONLY the methods the integration needs to change
+- Un-overridden methods automatically fall back to builtin (DB) behavior
+- Use `super().method()` for augmentation (add side-effects without replacing logic)
+- Use full override for replacement (return data from external API instead of DB)
+- Return the SAME types as the base service — override the data source, not the contract
+- Either a service is fully migrated to `integration_aware()` or fully singleton. No partial states.
+
+## Override Modes
+
+```python
+# 1. Full replacement — data from external API
+class ExternalProductsService(ProductsService):
+    async def list(self, company_id: int) -> list[Product]:
+        return await self.client.get_products(company_id)
+
+# 2. Augmentation — base logic + side-effect
+class ExternalOrdersService(OrdersService):
+    async def create(self, company_id: int, data: ...) -> Order:
+        order = await super().create(company_id, data)
+        await self.client.sync_deal(order)
+        return order
+
+# 3. No change — method not overridden, inherited as-is
+```
+
+## DI Resolution
+
+Two variants share `_resolve()` logic — differ only in how `company_id` is obtained:
+
+```python
+async def _resolve(base_cls: type[T], company_id: int) -> T:
+    integrations = await IntegrationRepository().get_for_company(company_id)
+    matches = []
+    for integration in integrations:
+        override = SERVICE_OVERRIDES.get((integration.provider_type, base_cls))
+        if override:
+            matches.append((integration, override))
+    if len(matches) > 1:
+        raise IntegrationConflictError(...)  # fail fast, never silently pick one
+    if matches:
+        return matches[0][1](integration=matches[0][0])
+    return base_cls()
+
+
+def integration_aware(base_cls: type[T]) -> Callable:
+    """Public routes — company_id from CompanyViewerDep."""
+    async def resolver(company_user: CompanyViewerDep) -> T:
+        return await _resolve(base_cls, company_user.company_id)
+    return resolver
+
+
+def integration_aware_by_id(base_cls: type[T]) -> Callable:
+    """Internal routes — company_id as path/query parameter."""
+    async def resolver(company_id: int) -> T:
+        return await _resolve(base_cls, company_id)
+    return resolver
+
+
+# Public routes
+ProductsServiceDep = Annotated[ProductsService, Depends(integration_aware(ProductsService))]
+# Internal routes
+ProductsServiceInternalDep = Annotated[ProductsService, Depends(integration_aware_by_id(ProductsService))]
+```
+
+## How to Add a New Capability Tool
+
+When an integration introduces functionality that doesn't exist in the base system (e.g., scheduling):
+
+1. Add `AvailableTool` entry in `libs/common/src/common/tools.py`
+2. Map it in `CAPABILITY_TOOLS` in `libs/common/src/common/integrations.py`
+3. Add endpoint in `apps/backend/src/backend/modules/integrations/capability_routes.py` — resolves provider via `IntegrationRepository.get_by_capability()`, calls provider client
+4. Add tool handler in `apps/sales-agent/src/sales_agent/agents/capability_tools.py` — calls the Backend endpoint above
+5. Add `ToolSpec` in `apps/sales-agent/src/sales_agent/core/tools/registry.py`
+
+The tool is automatically gated: `AgentContextAssembler` only includes it in `enabled_tools` if the company has an integration with the matching capability enabled.
+
+## Anti-Patterns — DO NOT
+
+- **NO if/else in services:** Never write `if has_integration(company_id):` inside a service method
+- **NO if/else in routes:** Routes inject services via `ServiceDep`, never check integrations
+- **NO direct external API calls in agent tools:** Tools call Backend internal APIs, Backend routes to the provider
+- **NO partial service migration:** Either a service method is fully overridden or fully inherited. No "half DB, half external" in one method.
+- **NO deep inheritance:** Maximum one level: `BaseService → OverrideService`. Never `OverrideA → OverrideB`.
+
+## Capability-Driven Tools
+
+Capabilities activate agent tools automatically:
+
+```python
+CAPABILITY_TOOLS = {
+    Capability.SCHEDULING: [AvailableTool.GET_AVAILABLE_SLOTS, AvailableTool.CREATE_BOOKING],
+    Capability.STAFF: [AvailableTool.LIST_STAFF],
+}
+```
+
+`AgentContextAssembler` merges capability tools into `enabled_tools` based on the company's active integration capabilities. Sales Agent receives them transparently.
+
+## Error Handling
+
+- **No silent fallback.** If a provider API is down, the operation fails explicitly. Never fall back to builtin data when an integration is configured — unpredictable fallback is worse than a clear error.
+- The agent should tell the user "service temporarily unavailable" rather than silently showing stale/wrong data.
+
+## Credential Security
+
+Integration credentials use **envelope encryption** (`libs/common/src/common/crypto.py`):
+- Each Integration record has its own DEK (Data Encryption Key)
+- DEK encrypts the credentials, MASTER_KEY encrypts the DEK
+- DB stores `encrypted_credentials` + `encrypted_dek`, never plaintext tokens
+
+## Constraints
+
+- **One integration per capability per company.** A company can have multiple integrations, but each capability (products, scheduling, etc.) is served by exactly one provider.
+- **Integration-aware services are per-request**, not `@lru_cache` singletons (they depend on company config).
+- **Agent tools for new capabilities** call Backend internal APIs (`/api/v1/internal/capabilities/...`), never external APIs directly. Backend resolves the provider.
+- **Rate limiting** is the responsibility of `BaseIntegrationClient`, not the platform. Each provider client enforces its own API limits.

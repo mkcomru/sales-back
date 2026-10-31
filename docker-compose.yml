@@ -1,0 +1,228 @@
+services:
+  minio:
+    profiles: ["minio"]
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    env_file:
+      - .env.shared.dev
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "6379:6379"
+
+  backend-migrations:
+    build:
+      context: .
+      dockerfile: docker/python-service.Dockerfile
+      args:
+        PACKAGE_NAME: backend
+        APP_PATH: apps/backend
+        PYTHONPATH_SUFFIX: ""
+        UVICORN_MODULE_PATH: src.backend.main:app
+    restart: "no"
+    env_file:
+      - .env.shared.dev
+      - apps/backend/.env
+    environment:
+      EVENTING__ENABLED: False
+    working_dir: /app/apps/backend
+    command: ["/app/.venv/bin/aerich", "upgrade"]
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/python-service.Dockerfile
+      args:
+        PACKAGE_NAME: backend
+        APP_PATH: apps/backend
+        PYTHONPATH_SUFFIX: ""
+        UVICORN_MODULE_PATH: src.backend.main:app
+        INSTALL_FFMPEG: "true"
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend-migrations:
+        condition: service_completed_successfully
+    env_file:
+      - .env.shared.dev
+      - apps/backend/.env
+    environment:
+      EVENTING__STREAM__GROUP: backend
+      EVENTING__STREAM__NAME: backend.events
+    ports:
+      - "8081:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  worker-hub:
+    build:
+      context: .
+      dockerfile: docker/python-service.Dockerfile
+      args:
+        PACKAGE_NAME: backend
+        APP_PATH: apps/backend
+        PYTHONPATH_SUFFIX: ""
+        UVICORN_MODULE_PATH: src.backend.main:app
+        INSTALL_FFMPEG: "true"
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend-migrations:
+        condition: service_completed_successfully
+    env_file:
+      - .env.shared.dev
+      - apps/backend/.env
+    environment:
+      EVENTING__ENABLED: "false"
+      WORKERS: "all"
+    command: ["/app/.venv/bin/python", "-m", "src.backend.workers.hub"]
+
+  sales-agent:
+    build:
+      context: .
+      dockerfile: docker/python-service.Dockerfile
+      args:
+        PACKAGE_NAME: sales-bot
+        APP_PATH: apps/sales-agent
+        PYTHONPATH_SUFFIX: ""
+        UVICORN_MODULE_PATH: src.sales_agent.main:app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    env_file:
+      - .env.shared.dev
+      - apps/sales-agent/.env
+    environment:
+      EVENTING__STREAM__NAME: backend.events
+      EVENTING__STREAM__GROUP: sales-agent
+    ports:
+      - "8080:8000"
+
+  telegram-module:
+    build:
+      context: .
+      dockerfile: docker/python-service.Dockerfile
+      args:
+        PACKAGE_NAME: telegram-module
+        APP_PATH: apps/telegram-module
+        PYTHONPATH_SUFFIX: /src
+        UVICORN_MODULE_PATH: telegram_module.main:app
+        INSTALL_FFMPEG: "true"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    env_file:
+      - .env.shared.dev
+      - apps/telegram-module/.env
+    environment:
+      EVENTING__STREAM__NAME: backend.events
+      EVENTING__STREAM__GROUP: telegram-module
+    ports:
+      - "8082:8000"
+
+  wappi-module:
+    build:
+      context: .
+      dockerfile: docker/python-service.Dockerfile
+      args:
+        PACKAGE_NAME: wappi-module
+        APP_PATH: apps/wappi-module
+        PYTHONPATH_SUFFIX: /src
+        UVICORN_MODULE_PATH: wappi_module.main:app
+        INSTALL_FFMPEG: "true"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    env_file:
+      - .env.shared.dev
+      - apps/wappi-module/.env
+    environment:
+      EVENTING__STREAM__NAME: backend.events
+      EVENTING__STREAM__GROUP: wappi-module
+    ports:
+      - "8083:8000"
+
+  wazzup-module:
+    build:
+      context: .
+      dockerfile: docker/python-service.Dockerfile
+      args:
+        PACKAGE_NAME: wazzup-module
+        APP_PATH: apps/wazzup-module
+        PYTHONPATH_SUFFIX: /src
+        UVICORN_MODULE_PATH: wazzup_module.main:app
+        INSTALL_FFMPEG: "true"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    env_file:
+      - .env.shared.dev
+      - apps/wazzup-module/.env
+    environment:
+      EVENTING__STREAM__NAME: backend.events
+      EVENTING__STREAM__GROUP: wazzup-module
+    ports:
+      - "8084:8000"
+
+  traefik:
+    profiles: ["server"]
+    image: traefik:v3.6
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/generate-config.sh"]
+    command:
+      - "traefik"
+      - "--api.dashboard=true"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=false"
+      - "--entrypoints.http.address=:80"
+      - "--entrypoints.https.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@ai-gency.ru}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    env_file:
+      - .env.shared.dev
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8090:8080"
+    volumes:
+      - ./docker/traefik/generate-config.sh:/generate-config.sh:ro
+      - traefik_letsencrypt:/letsencrypt
+
+volumes:
+  minio_data:
+  redis_data:
+  traefik_letsencrypt:

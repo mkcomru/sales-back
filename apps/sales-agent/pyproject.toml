@@ -1,0 +1,46 @@
+[project]
+name = "sales-bot"
+version = "0.1.0"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "pydantic-settings>=2.10.1,<3.0.0",
+  "structlog>=25.4.0,<26.0.0",
+  "tortoise-orm>=0.25.1,<0.26.0",
+  "aiosqlite>=0.21.0,<0.22.0",
+  "beautifulsoup4>=4.13.4,<5.0.0",
+  "markdownify>=1.2.0,<2.0.0",
+  "aiohttp>=3.12.15,<4.0.0",
+  "readability-lxml>=0.8.4.1,<0.9.0",
+  "pyyaml>=6.0.2,<7.0.0",
+  "yandexcloud>=0.357.0,<0.358.0",
+  "httpx>=0.28.1,<0.29.0",
+  "aerich>=0.9.1,<0.10.0",
+  "asyncpg>=0.30.0,<0.31.0",
+  "uvicorn>=0.38.0,<0.39.0",
+  "fastapi>=0.119.1,<0.120.0",
+  "common",
+  "openai>=1.0.0,<2.0.0",
+  "langfuse>=3.5.0,<4.0.0",
+  "qdrant-client>=1.15.1,<2.0.0",
+  "cohere>=5.19.0,<6.0.0",
+  "pymupdf>=1.26.5,<2.0.0",
+  "python-docx>=1.2.0,<2.0.0",
+  "click>=8.3.0,<9.0.0",
+  "jinja2>=3.1.6",
+  "python-multipart>=0.0.20",
+  "rapidfuzz>=3.12.0,<4.0.0",
+]
+
+[project.scripts]
+kb = "sales_agent.cli.kb:kb"
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sales_agent"]
+
+[tool.pytest.ini_options]
+pythonpath = "."
+asyncio_mode = "auto"

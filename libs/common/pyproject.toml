@@ -1,0 +1,32 @@
+[project]
+name = "common"
+version = "0.1.0"
+description = "Shared core utilities for sales monorepo"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "ffmpeg-python>=0.2.0",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.10",
+  "structlog>=25.4",
+  "pyyaml>=6.0",
+  "redis>=5.0",
+  "cryptography>=44.0",
+]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/common"]
+
+[dependency-groups]
+dev = [
+  "pytest>=9.0.0",
+  "pytest-asyncio>=0.23.8",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+testpaths = ["tests"]

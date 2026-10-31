@@ -1,0 +1,184 @@
+---
+description: Any time you are working with `manual_testing` module you must take this rule into context
+alwaysApply: false
+---
+# Manual Testing Module
+
+This folder contains interactive scripts for manual API testing. It serves as a playground for verifying feature implementations before they go to production.
+
+## Structure
+
+```
+scripts/manual_testing/
+├── framework/           # Reusable testing framework
+│   ├── __init__.py     # Public exports
+│   ├── client.py       # BaseTestClient with common API methods
+│   ├── config.py       # Centralized configuration
+│   ├── output.py       # Rich console output helpers
+│   ├── scenarios.py    # Scenario runner infrastructure
+│   └── setup.py        # Common setup/teardown
+├── .cursor/rules/      # This file
+├── tests/              # (Future) Refactored test files
+├── test_*.py           # Legacy test scripts
+└── README.md           # Usage documentation
+```
+
+## Creating New Test Scripts
+
+### 1. Use the Framework
+
+All new test scripts MUST use the framework. Do not duplicate common code.
+
+```python
+#!/usr/bin/env python3
+"""Test script for Feature X (Plan NNN)."""
+
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
+
+from framework import BaseTestClient, Scenario, run_scenarios, console, success, error
+from framework.output import print_scenario_header, print_table
+
+
+class FeatureXClient(BaseTestClient):
+    """Client with feature-specific methods."""
+
+    async def create_feature_x(self, **kwargs) -> dict:
+        return await self.post(
+            f"/companies/{self.company_id}/feature-x",
+            json=kwargs,
+        )
+
+    async def get_feature_x(self, feature_id: int) -> dict:
+        return await self.get(f"/companies/{self.company_id}/feature-x/{feature_id}")
+
+
+async def scenario_1_basic_crud(client: FeatureXClient) -> bool:
+    """Scenario 1: Basic CRUD operations."""
+    print_scenario_header("Scenario 1: Basic CRUD", "Test create, read, update, delete")
+
+    # Step 1
+    console.print("[yellow]Step 1: Creating...[/yellow]")
+    result = await client.create_feature_x(name="Test")
+    success(f"Created: {result['id']}")
+
+    # Assertions
+    if result["name"] != "Test":
+        error("Name mismatch")
+        return False
+
+    console.print("\n[bold green]✓ Scenario 1 PASSED[/bold green]")
+    return True
+
+
+if __name__ == "__main__":
+    run_scenarios(
+        FeatureXClient,
+        [
+            Scenario("Basic CRUD", scenario_1_basic_crud, "Create, read, update, delete"),
+            # Add more scenarios...
+        ],
+        title="Feature X Test",
+        description="Tests for Plan NNN: Feature X Implementation",
+        company_name="Feature X Test Company",
+        create_thread=True,  # If you need a thread/order
+    )
+```
+
+### 2. Scenario Structure
+
+Each scenario MUST:
+- Have a descriptive name
+- Print a header with `print_scenario_header(name, goal)`
+- Log each step with `console.print("[yellow]Step N: ...[/yellow]")`
+- Use `success()` / `error()` for outcomes
+- Return `True` on success, `False` on failure
+- End with `console.print("\n[bold green]✓ Scenario N PASSED[/bold green]")`
+
+### 3. Client Methods
+
+- Inherit from `BaseTestClient`
+- Use `self.company_id`, `self.order_id`, etc. (set by `setup_environment`)
+- Use `await self.get()`, `await self.post()`, etc. for standard requests
+- Use `await self.raw_request()` when testing error cases (no raise on error)
+- Add domain-specific methods only
+
+### 4. Configuration
+
+Configuration is centralized in `framework/config.py`. Override via environment:
+
+```bash
+export BACKEND_URL="http://localhost:8081"
+export TEST_EMAIL="admin@example.com"
+export TEST_PASSWORD="password123"
+export SERVICE_API_KEY="your-api-key"
+```
+
+## Legacy Test Scripts
+
+Files like `test_assignee.py`, `test_connectors.py`, `test_pagination_sanity.py` use older patterns. They work but should not be used as templates for new tests.
+
+Reference files for new tests:
+- `test_tasks.py` - Most complete example with 9 scenarios
+- `test_orders.py` - Good scenario structure
+- `test_forms_capture.py` - 10 scenarios with validation testing
+
+## Running Tests
+
+```bash
+cd scripts/manual_testing
+python test_feature.py
+
+# Or with uv from repo root
+uv run python scripts/manual_testing/test_feature.py
+```
+
+## Testing Guidelines
+
+1. **One scenario per logical flow** - Don't combine unrelated tests
+2. **Test happy path AND edge cases** - Include validation/error scenarios
+3. **Use unique identifiers** - Include timestamp in names to avoid collisions
+4. **Clean state assumption** - Scenarios may run independently
+5. **Verbose output** - Show what's happening at each step
+6. **No silent failures** - Always print error details
+
+## Common Patterns
+
+### Testing validation errors:
+```python
+try:
+    await client.create_task(invalid_data=True)
+    error("Should have returned 422")
+    return False
+except httpx.HTTPStatusError as e:
+    if e.response.status_code == 422:
+        success("Correctly returned 422")
+    else:
+        error(f"Wrong status: {e.response.status_code}")
+        return False
+```
+
+### Testing with raw response:
+```python
+response = await client.raw_request("POST", "/endpoint", json={...})
+if response.status_code == 400:
+    success("Correctly rejected")
+else:
+    error(f"Expected 400, got {response.status_code}")
+    return False
+```
+
+### Printing structured data:
+```python
+from framework.output import print_table, print_json
+
+# Table for lists
+print_table(
+    items,
+    [("id", "ID"), ("name", "Name"), ("status", "Status")],
+    title="Results"
+)
+
+# JSON for single objects
+print_json(result, title="Created Item", style="green")
+```

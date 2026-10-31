@@ -1,0 +1,127 @@
+---
+alwaysApply: true
+---
+# Python Best Practices
+
+## Project Structure
+- Use src-layout with `src/your_package_name/`
+- Place tests in `tests/` directory parallel to `src/`
+- Keep configuration as environment variables (store them in .env)
+- Store requirements in `pyproject.toml` (use poetry)
+- Place static files in `static/` directory
+
+## Code Style
+- Follow Black code formatting
+- Use isort for import sorting
+- Follow PEP 8 naming conventions:
+  - snake_case for functions and variables
+  - PascalCase for classes
+  - UPPER_CASE for constants
+- Maximum line length of 120 characters (Black default)
+- Use absolute imports over relative imports
+- Imports must be at module top-level. Do not import inside functions, methods,
+  classes, or tests.
+- Do not alias common/testing libraries unnecessarily. For example, write
+  `import pytest`, not `import pytest as _pytest`.
+- Only use widely accepted community aliases (e.g., `import numpy as np`) when
+  they are standard and improve readability; otherwise use the original name.
+- Avoid dynamic/lazy imports. If absolutely required for optional dependencies,
+  prefer a module-level try/except with a concise comment explaining why.
+- Prefer f‑strings over `str.format()` and `%`‑formatting.
+- Avoid mutable default arguments (e.g., `[]`, `{}`); use `None` and initialize inside.
+- Use `pathlib` for filesystem paths instead of `os.path`.
+- Avoid wildcard imports (`from module import *`), always import explicitly.
+- Use guard clauses (early returns) to avoid nested `if/else` blocks.
+- Prefer `match` + `case` over `if` + `elif` + `else` for complex conditionals.
+- Avoid using `hasattr`; it's often a sign of poor design.
+
+## Data Models
+- Use **Pydantic `BaseModel`** for all data structures, schemas, configs, and DTOs. Do NOT use `dataclasses` — Pydantic is the project-wide standard and already a core dependency.
+- Use Pydantic `Field(...)` for validation, defaults, and documentation.
+- Use enums (`StrEnum`, `IntEnum`) for fixed value sets.
+
+## Type Hints
+- Use type hints for all function parameters and returns
+- Import types from `typing` module
+- Use the modern union operator `|` for optional types (e.g., `name: str | None = None`) instead of `Optional[Type]` (requires Python 3.10+).
+- Use `TypeVar` for generic types
+- Define custom types in `types.py`
+- Use `Protocol` for duck typing
+
+## Database
+- Use Tortoise ORM
+- **Database migrations MUST be created using Aerich, never manually**
+  - Run `uv run aerich migrate --name <change_name>` from backend module root
+  - After generation, manually add "backend" schema prefix to all table names in the migration file
+  - Migrations are located in `apps/backend/migrations/models/`
+- Use proper connection pooling
+- Define models in separate modules
+- Implement proper relationships
+- Use proper indexing strategies
+
+## API Design
+- Use FastAPI for REST APIs
+- Implement proper request validation
+- Use proper HTTP status codes
+- Handle errors consistently
+- Use proper response formats
+- Implement proper rate limiting
+
+## Testing
+- Use pytest for testing
+- Write tests for all routes
+- Use pytest-cov for coverage
+- Implement proper fixtures
+- Test all error scenarios
+
+## Security
+- Use HTTPS in production
+- Implement proper CORS
+- Sanitize all user inputs
+- Use proper session configuration
+- Implement proper logging
+- Follow OWASP guidelines
+- Monitor application performance
+
+## Performance
+- Implement database query optimization
+- Use proper connection pooling
+- Implement proper pagination
+- Use background tasks for heavy operations
+- Monitor application performance
+
+## Error Handling
+- Create custom exception classes
+- Use proper try-except blocks
+- Catch only specific exceptions; avoid bare `except:` clauses.
+- Do not use `try–except` for regular control flow; check conditions first.
+- Use context managers (`with`) for resource management to ensure cleanup.
+- When catching exceptions, use `logger.exception("message")` to capture the stack trace, not `logger.error(str(e))`.
+- Return proper error responses
+- Handle edge cases properly
+- Use proper error messages
+
+## Documentation
+- Use Google-style docstrings
+- Document all public APIs
+- Keep README.md updated
+- Use proper inline comments
+- Write comments to explain non-obvious logic, not to document code changes.
+- Generate API documentation
+- Document environment setup
+
+## Development Workflow
+- Use virtual environments (venv)
+- Implement pre-commit hooks
+- Use proper Git workflow
+- Follow semantic versioning
+- Use proper CI/CD practices
+- Use `logger = logging.getLogger(__name__)` to declare loggers.
+
+## Dependencies
+- Pin dependency versions
+- Use pyproject.toml for production (poetry)
+- Separate dev dependencies
+- Use proper package versions
+- Regularly update dependencies
+- Check for security vulnerabilities

@@ -1,0 +1,56 @@
+{
+    "folders": [
+        {
+            "name": "repo-root",
+            "path": "."
+        },
+        {
+            "name": "common-lib",
+            "path": "libs/common"
+        },
+        {
+            "name": "backend",
+            "path": "apps/backend"
+        },
+        {
+            "name": "sales-agent",
+            "path": "apps/sales-agent"
+        },
+        {
+            "name": "telegram-module",
+            "path": "apps/telegram-module"
+        },
+        {
+            "name": "wappi-module",
+            "path": "apps/wappi-module"
+        },
+        {
+            "name": "wazzup-module",
+            "path": "apps/wazzup-module/"
+        },
+        {
+            "path": "scripts/manual_testing"
+        },
+        {
+            "path": "../sales-front"
+        }
+    ],
+    "settings": {
+        "flake8.enabled": false,
+        "[python]": {
+            "editor.defaultFormatter": "charliermarsh.ruff",
+        },
+        "python.defaultInterpreterPath": "${workspaceFolder:repo-root}/.venv/bin/python",
+        "files.watcherExclude": {
+            "storage/**": true
+        },
+        "search.exclude": {
+            "storage/**": true
+        },
+    },
+    "extensions": {
+        "recommendations": [
+            "charliermarsh.ruff"
+        ]
+    }
+}

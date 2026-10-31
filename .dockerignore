@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+.mypy_cache/
+.git/
+.github/
+.vscode/
+.idea/
+.venv/
+.env
+*.env
+poetry.lock.bak
+*.log
+tests/
+docs/

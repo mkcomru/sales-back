@@ -1,0 +1,81 @@
+---
+description: How to add a new transport connector — catalog entries, ABC contracts, validation
+alwaysApply: false
+---
+# Adding a New Connector
+
+## 1. Register in the Catalog (single source of truth)
+
+All catalog entries live in **`libs/common/src/common/transport/registry.py`** — never in the module itself.
+
+```python
+# libs/common/src/common/transport/registry.py
+CONNECTOR_TYPE_CATALOG: dict[str, ConnectorTypeCatalogEntry] = {
+    ...
+    "mynewconnector": ConnectorTypeCatalogEntry(
+        connector_type="mynewconnector",
+        display_name="My New Connector",
+        description="Short description",
+        managed=True,
+        supported_capabilities=[
+            ConnectorCapability.INBOUND_TEXT,
+            ConnectorCapability.OUTBOUND_TEXT,
+            # Only list what is ACTUALLY implemented, not aspirational
+        ],
+    ),
+}
+```
+
+### Hub-style transports (one module, multiple platforms)
+
+If one transport module handles multiple platforms (like wappi handles WhatsApp and Telegram), use **compound keys**: `{transport}-{channel}`.
+
+```python
+"wappi-whatsapp": ConnectorTypeCatalogEntry(connector_type="wappi-whatsapp", ...),
+"wappi-telegram": ConnectorTypeCatalogEntry(connector_type="wappi-telegram", ...),
+```
+
+`resolve_catalog_key(connector_type, channel_type)` handles the lookup automatically — compound first, then simple fallback.
+
+## 2. Implement ABC Contracts
+
+Every connector module must implement these base classes from `common.transport`:
+
+| Class | Where | What to implement |
+|---|---|---|
+| `BaseConnectorConfig` | `connectors/models.py` | inherit, add module-specific fields |
+| `BaseConnectorManager[TConfig]` | `connectors/manager.py` | `reload()`, `get()`, `shutdown()` |
+| `BaseTransportDeliveryService` | `transport/service.py` | `handle()` |
+| `BaseTransportBackendClient[TConfig]` | `services/backend.py` | `fetch_connectors()` |
+
+`upload_artifact()` is already implemented in `BaseTransportBackendClient` — initialize `_base_url`, `_api_key`, `_timeout`, `_artifact_upload_max_retries`, `_artifact_upload_retry_delay_s` in `__init__`.
+
+## 3. Register Module Entry Point
+
+In the new module's `apps/<module>/src/<pkg>/main.py` lifespan:
+
+```python
+# Single-platform connector
+catalog_entry = CONNECTOR_TYPE_CATALOG["mynewconnector"]
+validate_connector_module(catalog_entry, transport_service)
+
+# Hub-style (multiple platforms)
+entries = [e for e in CONNECTOR_TYPE_CATALOG.values() if e.connector_type.startswith("mynewconnector")]
+validate_connector_module(entries, transport_service, sync_provider=MyProvider)
+```
+
+## 4. Backend Routing
+
+In `apps/backend/src/backend/modules/messages/transport_client.py`, add the new type to `_resolve_endpoint()`:
+
+```python
+case "mynewconnector":
+    return str(self._settings.transport.mynewconnector.url).rstrip("/")
+```
+
+## Rules
+
+- **Only declare capabilities that are implemented.** Aspirational capabilities cause false UI and broken feature gating.
+- **Hub transports get separate catalog entries per platform** — capabilities can differ between platforms.
+- **Never call `register_connector_type()` from a module `__init__.py`** — put entries directly in `registry.py`.
+- **`channel_type` drives compound key resolution** — the DB stores `type="wappi"` + `channel_type="whatsapp"`, the catalog key is `wappi-whatsapp`.

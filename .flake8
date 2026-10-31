@@ -1,0 +1,4 @@
+[flake8]
+max-line-length = 120
+exclude = .venv,venv,build,dist,node_modules,__pycache__,.pytest_cache,.mypy_cache
+per-file-ignores = **/site-packages/**:E,W,F

@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  NAMESPACE: aigency-ru
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          uv sync --all-packages
+
+      - name: Lint (pre-commit)
+        uses: pre-commit/action@v3.0.1
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - sales-agent
+          - backend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          uv sync --all-packages
+
+      - name: Run tests (${{ matrix.app }})
+        run: |
+          # Adapt flags per app if you really care (-q vs -qq)
+          uv run --directory apps/${{ matrix.app }} pytest -q
+
+  docker-build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: backend
+            package: backend
+            app_path: apps/backend
+            pythonpath_suffix: ""
+            uvicorn_module_path: "src.backend.main:app"
+          - service: sales-agent
+            package: sales-bot
+            app_path: apps/sales-agent
+            pythonpath_suffix: ""
+            uvicorn_module_path: "src.sales_agent.main:app"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Optional: login if you want to push images
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ matrix.service }} image (with cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/python-service.Dockerfile
+          build-args: |
+            PACKAGE_NAME=${{ matrix.package }}
+            APP_PATH=${{ matrix.app_path }}
+            PYTHONPATH_SUFFIX=${{ matrix.pythonpath_suffix }}
+            UVICORN_MODULE_PATH=${{ matrix.uvicorn_module_path }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ matrix.service }}:ci-${{ github.sha }}
+          push: false # or true if you want to publish
+          # THIS is the magic:
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,0 +1,121 @@
+---
+alwaysApply: true
+---
+
+# Data Consistency & Repository Encapsulation
+
+## Principle
+
+All operations involving **dependent/related data** must be encapsulated in repository or service methods. Direct field updates that bypass these methods are forbidden.
+
+## Why
+
+- Prevents data inconsistency when someone forgets to update a related field
+- Single source of truth for business logic
+- Easier to test and maintain
+- Audit trail through logging in one place
+
+## Pattern: Repository Encapsulation
+
+When an operation affects multiple fields or tables, create a dedicated repository/service method that handles ALL related changes atomically.
+
+### Example: Order Assignment
+
+**Wrong** (direct update, easy to forget `last_assigned_at`):
+```python
+order.assignee_id = manager_id
+await order.save()
+# Oops, forgot to update manager.last_assigned_at!
+```
+
+**Correct** (encapsulated in repository):
+```python
+# All assignment logic in one place
+await orders_repo.update_assignee(order, manager_id)
+
+# Inside update_assignee():
+async def update_assignee(self, order, assignee_id, ...):
+    order.assignee_id = assignee_id
+    await order.save()
+    
+    if assignee_id:
+        await CompanyUser.filter(id=assignee_id).update(
+            last_assigned_at=datetime.now(UTC)
+        )
+    
+    await OrderLog.create(...)  # Logging too
+```
+
+## Rules
+
+1. **Identify dependent data** — when field A changes, what else must change?
+2. **Create single entry point** — repository method that handles ALL related changes
+3. **Document dependencies** — in method docstring, list all side effects
+4. **Enforce through code review** — reject PRs that bypass encapsulated methods
+5. **Test the encapsulation** — unit tests should verify all dependent data is updated
+
+## Current Encapsulated Operations
+
+| Operation | Dependent Changes | Entry Point |
+|-----|----|----|
+| Assign Order | `Order.assignee_id` + `CompanyUser.last_assigned_at` | `OrdersRepository.update_assignee()` |
+| Create Order with assignee | `Order` + `CompanyUser.last_assigned_at` | `OrdersRepository.create()` |
+| Handoff | Order assignment + Thread state + AI deactivation | `ChatService.handle_handoff()` |
+| Update Order stage | `Order.stage_id` + `OrderLog` | `OrdersRepository.update_stage()` |
+| Deactivate assistant | `Thread.assistant_active` + Sales Agent debounce cancel | `ThreadsService.set_assistant_active(active=False)` |
+
+## Service Instantiation (No Direct Creation)
+
+**Services must not instantiate other services directly.** Use FastAPI dependency injection and dependency chaining.
+
+- **Wrong:** `order_service = OrderService()` inside a service method or another service's `__init__`
+- **Correct:** Inject `OrderService` via constructor; in FastAPI, make the dependent service's factory depend on `OrderServiceDep`
+
+Example: `ChatService` needs `OrderService` → `chat_service(order_service: OrderServiceDep)` creates `ChatService(order_service=order_service)`. Routers receive `ChatServiceDep`; FastAPI resolves the chain.
+
+For workers, tests, and other non-request contexts: instantiate at the composition root: `ChatService(order_service=OrderService())`. Only the entry point creates services.
+
+## Cross-Module Dependencies: Service-to-Service Only
+
+**Services must never depend on repositories of other modules.** A repository is the private implementation detail of its own module.
+
+When a service needs data or operations from another module, it **must** go through that module's service. This preserves all validation, side effects, logging, and encapsulation that the service provides.
+
+**Wrong** (PingService using TaskRepository directly):
+```python
+class PingService:
+    def __init__(self, ping_repo: PingRuleRepository, task_repo: TaskRepository):
+        ...
+    async def cancel_pings(self, order_id: int) -> int:
+        return await self.task_repo.cancel_pending_pings_for_order(order_id)
+```
+
+**Correct** (PingService depending on TaskService):
+```python
+class PingService:
+    def __init__(self, ping_repo: PingRuleRepository, task_service: TaskService):
+        ...
+    async def cancel_pings(self, order_id: int) -> int:
+        return await self.task_service.cancel_pending_pings_for_order(order_id)
+```
+
+### Layering Rules
+
+| Caller | Can use own repo | Can use own service | Can use other module's repo | Can use other module's service |
+|--------|:---:|:---:|:---:|:---:|
+| Repository | — | No | No | No |
+| Service | Yes | No | **No** | **Yes** |
+| Router/Handler | No | Yes (via DI) | No | Yes (via DI) |
+| Worker | No | Yes | **No** | **Yes** |
+| Composition root | Yes (to wire into services) | Yes | Yes (to wire into services) | Yes |
+
+**Workers** follow the same rules as services — they must use services, not foreign repositories. The composition root (where the dependency graph is assembled) may instantiate repositories and pass them into services, but the worker's business logic must go through the service layer.
+
+## When to Add New Encapsulation
+
+Ask yourself:
+- Does changing field X require changing field Y?
+- Does this operation need logging/audit?
+- Could someone reasonably forget a step?
+
+If yes to any → create encapsulated method.

@@ -1,0 +1,29 @@
+[project]
+name = "telegram-module"
+version = "0.1.0"
+description = "Telegram transport module for the Sales Agent platform"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "fastapi>=0.119.1,<0.120.0",
+  "uvicorn[standard]>=0.38.0,<0.39.0",
+  "httpx>=0.28.1,<0.29.0",
+  "pydantic-settings>=2.11.0,<3.0.0",
+  "structlog>=25.4.0,<26.0.0",
+  "aiogram>=3.13.1,<4.0.0",
+  "python-dotenv>=1.1.1,<2.0.0",
+  "common",
+]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/telegram_module"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.0",
+    "pytest-asyncio>=0.23.8",
+    "ruff==0.14.4",
+]
