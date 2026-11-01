@@ -75,6 +75,8 @@ services:
         INSTALL_FFMPEG: "true"
     restart: unless-stopped
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       backend-migrations:
@@ -237,6 +239,7 @@ services:
       - traefik_letsencrypt:/letsencrypt
 
 volumes:
+  postgres_data:
   minio_data:
   redis_data:
   traefik_letsencrypt:
