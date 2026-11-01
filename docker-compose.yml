@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     env_file:
-      - .env.shared.dev
+      - .env
     volumes:
       - minio_data:/data
     ports:
@@ -22,7 +22,7 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     env_file:
-      - .env.shared.dev
+      - .env
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -55,9 +55,11 @@ services:
         PYTHONPATH_SUFFIX: ""
         UVICORN_MODULE_PATH: src.backend.main:app
     restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
     env_file:
-      - .env.shared.dev
-      - apps/backend/.env
+      - .env
     environment:
       EVENTING__ENABLED: False
     working_dir: /app/apps/backend
@@ -82,8 +84,7 @@ services:
       backend-migrations:
         condition: service_completed_successfully
     env_file:
-      - .env.shared.dev
-      - apps/backend/.env
+      - .env
     environment:
       EVENTING__STREAM__GROUP: backend
       EVENTING__STREAM__NAME: backend.events
@@ -113,8 +114,7 @@ services:
       backend-migrations:
         condition: service_completed_successfully
     env_file:
-      - .env.shared.dev
-      - apps/backend/.env
+      - .env
     environment:
       EVENTING__ENABLED: "false"
       WORKERS: "all"
@@ -136,8 +136,7 @@ services:
       backend:
         condition: service_healthy
     env_file:
-      - .env.shared.dev
-      - apps/sales-agent/.env
+      - .env
     environment:
       EVENTING__STREAM__NAME: backend.events
       EVENTING__STREAM__GROUP: sales-agent
@@ -159,8 +158,7 @@ services:
       backend:
         condition: service_healthy
     env_file:
-      - .env.shared.dev
-      - apps/telegram-module/.env
+      - .env
     environment:
       EVENTING__STREAM__NAME: backend.events
       EVENTING__STREAM__GROUP: telegram-module
@@ -182,8 +180,7 @@ services:
       backend:
         condition: service_healthy
     env_file:
-      - .env.shared.dev
-      - apps/wappi-module/.env
+      - .env
     environment:
       EVENTING__STREAM__NAME: backend.events
       EVENTING__STREAM__GROUP: wappi-module
@@ -205,8 +202,7 @@ services:
       backend:
         condition: service_healthy
     env_file:
-      - .env.shared.dev
-      - apps/wazzup-module/.env
+      - .env
     environment:
       EVENTING__STREAM__NAME: backend.events
       EVENTING__STREAM__GROUP: wazzup-module
@@ -229,7 +225,7 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@ai-gency.ru}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
     env_file:
-      - .env.shared.dev
+      - .env
     ports:
       - "80:80"
       - "443:443"
