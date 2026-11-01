@@ -136,7 +136,7 @@ nginx/
 docker-compose.sales.yml
 base_of_knowledge/
 apps/sales-agent/knowledge_base.json
-storage/
+# storage/
 plans/upt-task-breakdown.md
 telegram-user-proxy-bot.md
 apps/sales-agent/test.py
