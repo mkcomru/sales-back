@@ -3,7 +3,6 @@
 
 import argparse
 import asyncio
-import getpass
 import sys
 
 from tortoise import Tortoise
@@ -15,29 +14,29 @@ from src.backend.modules.auth.models import RefreshToken
 from src.backend.modules.users.service import UsersService
 
 
-async def change_password(user_id: int, password: str) -> None:
+async def change_password(email: str, password: str) -> None:
     settings = get_settings()
     config = tortoise_config(db_url=settings.resolved_database_url)
 
     await Tortoise.init(config=config)
 
     try:
-        user = await User.get_or_none(id=user_id)
+        user = await User.get_or_none(email=email)
 
         if user is None:
-            print(f"User with ID {user_id} not found")
-            return
+            print(f"User with email {email} not found")
+            sys.exit(1)
 
         user.hashed_password = UsersService.get_password_hash(password)
         await user.save(update_fields=["hashed_password", "updated_at"])
 
-        # Завершаем существующие сессии пользователя
-        await RefreshToken.filter(user_id=user.id).delete()
+        # Отзываем все refresh-токены пользователя
+        deleted_tokens = await RefreshToken.filter(user_id=user.id).delete()
 
         print("Password changed successfully!")
-        print(f"User ID: {user.id}")
         print(f"Email: {user.email}")
-        print("Refresh tokens revoked.")
+        print(f"User ID: {user.id}")
+        print(f"Revoked refresh tokens: {deleted_tokens}")
 
     finally:
         await Tortoise.close_connections()
@@ -45,24 +44,27 @@ async def change_password(user_id: int, password: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Change user password by ID"
+        description="Change user password by email"
     )
-    parser.add_argument("--user-id", type=int, required=True)
+
+    parser.add_argument(
+        "--email",
+        required=True,
+        help="User email",
+    )
+    parser.add_argument(
+        "--password",
+        required=True,
+        help="New password",
+    )
 
     args = parser.parse_args()
 
-    password = getpass.getpass("New password: ")
-    password_confirm = getpass.getpass("Confirm password: ")
-
-    if len(password) < 8:
-        print("Password must be at least 8 characters")
+    if len(args.password) < 8:
+        print("Password must contain at least 8 characters")
         sys.exit(1)
 
-    if password != password_confirm:
-        print("Passwords do not match")
-        sys.exit(1)
-
-    asyncio.run(change_password(args.user_id, password))
+    asyncio.run(change_password(args.email, args.password))
 
 
 if __name__ == "__main__":
